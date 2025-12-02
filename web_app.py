@@ -435,14 +435,17 @@ def api_delete_channel(channel_name):
 @app.route('/api/backup', methods=['POST'])
 def api_start_backup():
     """Start a backup."""
-    data = request.json or {}
-    channel = data.get('channel')
+    try:
+        data = request.json or {}
+        channel = data.get('channel')
 
-    if backup_process['running']:
-        return jsonify({'error': 'Backup already running'}), 409
+        if backup_process['running']:
+            return jsonify({'error': 'Backup already running'}), 409
 
-    success = run_backup_async(channel)
-    return jsonify({'success': success})
+        success = run_backup_async(channel)
+        return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/settings', methods=['GET'])

@@ -248,6 +248,16 @@ def scrape_channel_videos(
 
             logger.info(f"Found {len(videos)} videos")
 
+    except yt_dlp.utils.DownloadError as e:
+        error_msg = str(e)
+        if "403" in error_msg:
+            logger.error(f"403 Forbidden - Your IP is blocked by Cloudflare")
+            logger.error(f"Solutions:")
+            logger.error(f"  1. Try from a different IP (deploy to Unraid)")
+            logger.error(f"  2. Set BROWSER_COOKIES=chrome and visit Rumble in Chrome first")
+            logger.error(f"  3. Use a VPN with a residential IP")
+        else:
+            logger.error(f"Failed to scrape channel: {e}")
     except Exception as e:
         logger.error(f"Failed to scrape channel: {e}")
 
