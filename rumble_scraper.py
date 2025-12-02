@@ -24,6 +24,7 @@ from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, asdict
 
 import yt_dlp
+from yt_dlp.networking.impersonate import ImpersonateTarget
 
 # =============================================================================
 # Configuration
@@ -123,7 +124,8 @@ def get_ydl_opts(
     """
     opts = {
         # Impersonate Chrome to bypass Cloudflare
-        "impersonate": "chrome",
+        # Use ImpersonateTarget for proper format
+        "impersonate": ImpersonateTarget("chrome"),
 
         # Format selection - best quality
         "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
