@@ -176,7 +176,8 @@ def get_ydl_opts(
     }
 
     if output_dir:
-        opts["outtmpl"] = str(output_dir / "%(id)s.%(ext)s")
+        # Use relative path in template, set home path separately
+        opts["outtmpl"] = "%(id)s.%(ext)s"
         opts["paths"] = {"home": str(output_dir)}
 
     if cookies_file and Path(cookies_file).exists():
