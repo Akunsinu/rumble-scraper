@@ -4,11 +4,9 @@ Rumble Channel Backup Script
 ============================
 Downloads videos from Rumble channels with metadata.
 
-Due to Cloudflare protection, this script requires:
-1. Browser cookies exported from a recent Rumble session
-2. The --impersonate chrome flag with curl_cffi installed
-
-Install: pip install "yt-dlp[curl_cffi]"
+This script uses a two-phase approach:
+1. Scrape channel page to get video IDs
+2. Download each video using embed URLs (which bypass Cloudflare)
 """
 
 import os
@@ -17,53 +15,24 @@ import json
 import time
 import logging
 import re
-import subprocess
+import random
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Any
-from dataclasses import dataclass, asdict
 
-import random
 import yt_dlp
-from yt_dlp.networking.impersonate import ImpersonateTarget
-
-# Browser versions to rotate through for better evasion
-CHROME_VERSIONS = ["chrome", "chrome-120", "chrome-131", "chrome-133"]
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
 RUMBLE_BASE_URL = "https://rumble.com"
+RUMBLE_EMBED_URL = "https://rumble.com/embed"
 DEFAULT_OUTPUT_DIR = "/data/rumble_backups"
 DEFAULT_CONFIG_DIR = "/config"
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-# =============================================================================
-# Data Classes
-# =============================================================================
-
-@dataclass
-class VideoMetadata:
-    """Stores metadata for a video."""
-    video_id: str
-    title: str
-    url: str
-    channel_name: str
-    channel_url: Optional[str] = None
-    upload_date: Optional[str] = None
-    duration: Optional[int] = None
-    views: Optional[int] = None
-    likes: Optional[int] = None
-    description: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    scraped_at: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
 
 # =============================================================================
 # Logging
@@ -73,6 +42,9 @@ def setup_logging(log_level: str = "INFO") -> logging.Logger:
     """Configure logging."""
     logger = logging.getLogger("rumble_scraper")
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+
+    # Clear existing handlers to avoid duplicates
+    logger.handlers = []
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
@@ -107,41 +79,35 @@ def get_channel_url(channel_identifier: str) -> str:
         return f"{RUMBLE_BASE_URL}/c/{channel_identifier}"
 
 
+def get_embed_url(video_id: str) -> str:
+    """Convert video ID to embed URL (bypasses Cloudflare)."""
+    video_id = video_id.strip()
+    # Ensure ID starts with 'v'
+    if not video_id.startswith("v"):
+        video_id = f"v{video_id}"
+    return f"{RUMBLE_EMBED_URL}/{video_id}"
+
+
 # =============================================================================
-# yt-dlp Based Functions (with Cloudflare bypass)
+# yt-dlp Options
 # =============================================================================
 
 def get_ydl_opts(
     output_dir: Optional[Path] = None,
     cookies_file: Optional[str] = None,
-    browser_cookies: Optional[str] = None,
-    download: bool = True
+    download: bool = True,
+    quiet: bool = False
 ) -> dict:
-    """
-    Get yt-dlp options configured for Rumble with Cloudflare bypass.
-
-    Args:
-        output_dir: Directory to save files
-        cookies_file: Path to cookies.txt file
-        browser_cookies: Browser name for --cookies-from-browser (chrome, firefox, etc.)
-        download: Whether to download or just extract info
-    """
-    # Randomize browser version for better evasion
-    browser_version = random.choice(CHROME_VERSIONS)
-
+    """Get yt-dlp options for downloading."""
     opts = {
-        # Impersonate Chrome to bypass Cloudflare
-        # Use ImpersonateTarget for proper format, rotate versions
-        "impersonate": ImpersonateTarget(browser_version),
-
         # Format selection - best quality
         "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
 
         # Download settings
-        "ignoreerrors": True,
-        "no_warnings": False,
-        "quiet": False,
+        "ignoreerrors": False,
+        "no_warnings": quiet,
+        "quiet": quiet,
 
         # Metadata
         "writeinfojson": True,
@@ -150,86 +116,55 @@ def get_ydl_opts(
         "writeautomaticsub": True,
         "subtitleslangs": ["en"],
 
-        # Network - increased timeouts and retries
+        # Network - robust settings
         "socket_timeout": 60,
         "retries": 10,
         "fragment_retries": 10,
 
-        # Rate limiting - randomized to appear more human-like
-        "sleep_interval": random.randint(2, 4),
-        "max_sleep_interval": random.randint(5, 8),
-
-        # HTTP headers to match browser
-        "http_headers": {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "DNT": "1",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Cache-Control": "max-age=0",
-        },
+        # Rate limiting
+        "sleep_interval": random.randint(1, 3),
+        "max_sleep_interval": random.randint(4, 6),
     }
 
     if output_dir:
-        # Use relative path in template, set home path separately
         opts["outtmpl"] = "%(id)s.%(ext)s"
         opts["paths"] = {"home": str(output_dir)}
 
     if cookies_file and Path(cookies_file).exists():
         opts["cookiefile"] = cookies_file
 
-    # Only use browser cookies if we're not in Docker (browser won't exist in container)
-    if browser_cookies:
-        # Check if we're likely in Docker by looking for common browser paths
-        import platform
-        in_docker = Path("/.dockerenv").exists() or platform.system() == "Linux"
-
-        if not in_docker:
-            opts["cookiesfrombrowser"] = (browser_cookies,)
-        # In Docker, skip browser cookies - they won't exist
-
     if not download:
         opts["skip_download"] = True
         opts["writethumbnail"] = False
+        opts["writeinfojson"] = False
 
     return opts
 
 
+# =============================================================================
+# Video Scraping - Get list of videos from channel
+# =============================================================================
+
 def scrape_channel_videos(
     channel_url: str,
     logger: logging.Logger,
-    cookies_file: Optional[str] = None,
-    browser_cookies: Optional[str] = None,
     max_videos: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """
-    Scrape video list from a Rumble channel using yt-dlp.
-
-    Args:
-        channel_url: URL of the channel
-        logger: Logger instance
-        cookies_file: Path to cookies file
-        browser_cookies: Browser to extract cookies from
-        max_videos: Maximum number of videos to return
-
-    Returns:
-        List of video info dictionaries
+    Scrape video list from a Rumble channel.
     """
     videos = []
     logger.info(f"Scraping channel: {channel_url}")
 
-    opts = get_ydl_opts(
-        cookies_file=cookies_file,
-        browser_cookies=browser_cookies,
-        download=False
-    )
-    opts["extract_flat"] = "in_playlist"
-    opts["playlistend"] = max_videos if max_videos else None
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "ignoreerrors": True,
+    }
+
+    if max_videos:
+        opts["playlistend"] = max_videos
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -239,7 +174,6 @@ def scrape_channel_videos(
                 logger.warning("No results returned from channel")
                 return videos
 
-            # Handle playlist/channel results
             entries = result.get("entries", [])
             if not entries and result.get("id"):
                 entries = [result]
@@ -248,10 +182,18 @@ def scrape_channel_videos(
                 if entry is None:
                     continue
 
+                video_id = entry.get("id", "")
+                if not video_id:
+                    continue
+
+                # Construct embed URL for downloading
+                embed_url = get_embed_url(video_id)
+
                 videos.append({
-                    "id": entry.get("id", ""),
-                    "url": entry.get("url") or entry.get("webpage_url", ""),
-                    "title": entry.get("title", ""),
+                    "id": video_id,
+                    "url": entry.get("webpage_url") or entry.get("url") or embed_url,
+                    "embed_url": embed_url,
+                    "title": entry.get("title", video_id),
                 })
 
             logger.info(f"Found {len(videos)} videos")
@@ -259,11 +201,8 @@ def scrape_channel_videos(
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
         if "403" in error_msg:
-            logger.error(f"403 Forbidden - Your IP is blocked by Cloudflare")
-            logger.error(f"Solutions:")
-            logger.error(f"  1. Try from a different IP (deploy to Unraid)")
-            logger.error(f"  2. Set BROWSER_COOKIES=chrome and visit Rumble in Chrome first")
-            logger.error(f"  3. Use a VPN with a residential IP")
+            logger.error("403 Forbidden - Channel page blocked by Cloudflare")
+            logger.error("Your IP may be blocked. Try from a different network.")
         else:
             logger.error(f"Failed to scrape channel: {e}")
     except Exception as e:
@@ -272,25 +211,18 @@ def scrape_channel_videos(
     return videos
 
 
+# =============================================================================
+# Video Download - Download individual video using embed URL
+# =============================================================================
+
 def download_video(
-    video_url: str,
+    video_id: str,
     output_dir: Path,
     logger: logging.Logger,
-    cookies_file: Optional[str] = None,
-    browser_cookies: Optional[str] = None
+    cookies_file: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Download a video using yt-dlp with Cloudflare bypass.
-
-    Args:
-        video_url: URL of the video
-        output_dir: Directory to save files
-        logger: Logger instance
-        cookies_file: Path to cookies file
-        browser_cookies: Browser to extract cookies from
-
-    Returns:
-        Dictionary with download results
+    Download a video using its embed URL (bypasses Cloudflare).
     """
     result = {
         "success": False,
@@ -301,57 +233,72 @@ def download_video(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Always use embed URL (bypasses Cloudflare)
+    embed_url = get_embed_url(video_id)
+
     opts = get_ydl_opts(
         output_dir=output_dir,
         cookies_file=cookies_file,
-        browser_cookies=browser_cookies,
         download=True
     )
 
     try:
-        logger.info(f"Downloading: {video_url}")
+        logger.info(f"Downloading: {video_id} from {embed_url}")
 
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(video_url, download=True)
+            info = ydl.extract_info(embed_url, download=True)
 
             if info:
-                result["success"] = True
-                result["metadata"] = {
-                    "id": info.get("id"),
-                    "title": info.get("title"),
-                    "description": info.get("description"),
-                    "duration": info.get("duration"),
-                    "view_count": info.get("view_count"),
-                    "like_count": info.get("like_count"),
-                    "upload_date": info.get("upload_date"),
-                    "uploader": info.get("uploader"),
-                    "channel": info.get("channel"),
-                    "thumbnail": info.get("thumbnail"),
-                    "webpage_url": info.get("webpage_url"),
-                }
+                # The actual video ID from yt-dlp may differ from what we passed
+                actual_id = info.get("id", video_id)
 
-                # Find downloaded file
-                video_id = info.get("id", "")
-                for ext in ["mp4", "webm", "mkv"]:
-                    video_file = output_dir / f"{video_id}.{ext}"
-                    if video_file.exists():
-                        result["video_file"] = str(video_file)
+                # Find the downloaded video file
+                video_file = None
+                for check_id in [actual_id, video_id, f"v{video_id}", video_id.lstrip("v")]:
+                    for ext in ["mp4", "webm", "mkv"]:
+                        potential_file = output_dir / f"{check_id}.{ext}"
+                        if potential_file.exists():
+                            video_file = potential_file
+                            break
+                    if video_file:
                         break
 
-                logger.info(f"Downloaded: {info.get('title', video_url)}")
+                if video_file and video_file.exists():
+                    result["success"] = True
+                    result["video_file"] = str(video_file)
+                    result["metadata"] = {
+                        "id": actual_id,
+                        "title": info.get("title"),
+                        "description": info.get("description"),
+                        "duration": info.get("duration"),
+                        "view_count": info.get("view_count"),
+                        "like_count": info.get("like_count"),
+                        "upload_date": info.get("upload_date"),
+                        "uploader": info.get("uploader"),
+                        "channel": info.get("channel"),
+                        "thumbnail": info.get("thumbnail"),
+                        "webpage_url": info.get("webpage_url"),
+                    }
+                    logger.info(f"Downloaded: {info.get('title', video_id)}")
+                else:
+                    result["error"] = "Video file not found after download"
+                    logger.error(f"Download completed but file not found for {video_id}")
+            else:
+                result["error"] = "No info returned from yt-dlp"
+                logger.error(f"No info returned for {video_id}")
 
     except yt_dlp.utils.DownloadError as e:
         result["error"] = str(e)
-        logger.error(f"Download failed: {e}")
+        logger.error(f"Download failed for {video_id}: {e}")
     except Exception as e:
         result["error"] = str(e)
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error downloading {video_id}: {e}")
 
     return result
 
 
 # =============================================================================
-# Backup Management
+# Backup State Management
 # =============================================================================
 
 def load_backup_state(config_dir: Path) -> Dict[str, Any]:
@@ -374,32 +321,37 @@ def save_backup_state(config_dir: Path, state: Dict[str, Any]) -> None:
         json.dump(state, f, indent=2)
 
 
+def is_video_downloaded(channel_output_dir: Path, video_id: str) -> bool:
+    """Check if a video file actually exists on disk."""
+    video_dir = channel_output_dir / video_id
+    if not video_dir.exists():
+        return False
+
+    # Check various ID formats
+    ids_to_check = [video_id, f"v{video_id}", video_id.lstrip("v")]
+
+    for check_id in ids_to_check:
+        for ext in ["mp4", "webm", "mkv"]:
+            if (video_dir / f"{check_id}.{ext}").exists():
+                return True
+
+    return False
+
+
+# =============================================================================
+# Main Backup Function
+# =============================================================================
+
 def backup_channel(
     channel_identifier: str,
     output_dir: Path,
     config_dir: Path,
     logger: logging.Logger,
     cookies_file: Optional[str] = None,
-    browser_cookies: Optional[str] = None,
     force_rescan: bool = False,
     max_videos: Optional[int] = None
 ) -> Dict[str, Any]:
-    """
-    Backup a Rumble channel.
-
-    Args:
-        channel_identifier: Channel URL or name
-        output_dir: Base output directory
-        config_dir: Configuration directory
-        logger: Logger instance
-        cookies_file: Path to cookies file
-        browser_cookies: Browser to extract cookies from
-        force_rescan: Re-download all videos
-        max_videos: Maximum videos to process
-
-    Returns:
-        Backup statistics
-    """
+    """Backup a Rumble channel."""
     stats = {
         "channel": channel_identifier,
         "videos_found": 0,
@@ -425,82 +377,71 @@ def backup_channel(
     downloaded_videos = set(channel_state.get("downloaded_videos", []))
 
     # Get video list
-    videos = scrape_channel_videos(
-        channel_url,
-        logger,
-        cookies_file=cookies_file,
-        browser_cookies=browser_cookies,
-        max_videos=max_videos
-    )
+    videos = scrape_channel_videos(channel_url, logger, max_videos=max_videos)
     stats["videos_found"] = len(videos)
 
     if not videos:
-        logger.warning("No videos found. This may be due to Cloudflare blocking.")
-        logger.info("Try: 1) Export cookies from browser, 2) Use --browser-cookies option")
+        logger.warning("No videos found!")
         return stats
 
     # Process videos
     for i, video_info in enumerate(videos, 1):
         video_id = video_info.get("id", "")
-        video_url = video_info.get("url", "")
 
-        if not video_url:
+        if not video_id:
+            logger.warning(f"Skipping video {i} - no video ID")
             continue
 
         logger.info(f"Processing video {i}/{len(videos)}: {video_id}")
 
-        # Skip if already downloaded AND the file actually exists
-        if video_id in downloaded_videos and not force_rescan:
-            video_output_dir = channel_output_dir / video_id
-            # Verify the video file actually exists
-            video_exists = any(
-                (video_output_dir / f"{video_id}.{ext}").exists()
-                for ext in ["mp4", "webm", "mkv"]
-            )
-            if video_exists:
+        # Check if already downloaded
+        if not force_rescan:
+            if video_id in downloaded_videos and is_video_downloaded(channel_output_dir, video_id):
                 logger.info(f"Skipping already downloaded: {video_id}")
                 stats["videos_skipped"] += 1
                 continue
-            else:
-                # File missing, remove from downloaded list and re-download
+            elif video_id in downloaded_videos:
+                logger.info(f"Re-downloading {video_id} (file missing)")
                 downloaded_videos.discard(video_id)
-                logger.info(f"Video {video_id} marked as downloaded but file missing, re-downloading")
 
         # Create video directory
         video_output_dir = channel_output_dir / video_id
         video_output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Download
+        # Download using embed URL
         result = download_video(
-            video_url,
+            video_id,
             video_output_dir,
             logger,
-            cookies_file=cookies_file,
-            browser_cookies=browser_cookies
+            cookies_file=cookies_file
         )
 
-        if result["success"]:
-            stats["videos_downloaded"] += 1
-            downloaded_videos.add(video_id)
+        if result["success"] and result["video_file"]:
+            if Path(result["video_file"]).exists():
+                stats["videos_downloaded"] += 1
+                downloaded_videos.add(video_id)
 
-            # Save metadata
-            if result["metadata"]:
-                metadata_file = video_output_dir / "metadata.json"
-                with open(metadata_file, "w", encoding="utf-8") as f:
-                    json.dump(result["metadata"], f, indent=2, ensure_ascii=False)
+                # Save metadata
+                if result["metadata"]:
+                    metadata_file = video_output_dir / "metadata.json"
+                    with open(metadata_file, "w", encoding="utf-8") as f:
+                        json.dump(result["metadata"], f, indent=2, ensure_ascii=False)
+
+                # Save state after each successful download
+                channel_state["downloaded_videos"] = list(downloaded_videos)
+                channel_state["last_backup"] = datetime.now().isoformat()
+                state["channels"][channel_identifier] = channel_state
+                state["last_run"] = datetime.now().isoformat()
+                save_backup_state(config_dir, state)
+            else:
+                stats["videos_failed"] += 1
+                stats["errors"].append(f"{video_id}: File not found")
         else:
             stats["videos_failed"] += 1
             stats["errors"].append(f"{video_id}: {result.get('error', 'Unknown error')}")
 
         # Rate limiting
-        time.sleep(2)
-
-    # Save state
-    channel_state["downloaded_videos"] = list(downloaded_videos)
-    channel_state["last_backup"] = datetime.now().isoformat()
-    state["channels"][channel_identifier] = channel_state
-    state["last_run"] = datetime.now().isoformat()
-    save_backup_state(config_dir, state)
+        time.sleep(random.uniform(2, 5))
 
     stats["completed_at"] = datetime.now().isoformat()
 
@@ -528,7 +469,6 @@ def load_config(config_path: Path) -> Dict[str, Any]:
         "max_videos_per_channel": None,
         "force_rescan": False,
         "cookies_file": None,
-        "browser_cookies": None,  # chrome, firefox, edge, etc.
     }
 
     if not config_path.exists():
@@ -562,7 +502,7 @@ def main():
 
     # Environment overrides
     if os.environ.get("CHANNELS"):
-        config["channels"] = os.environ["CHANNELS"].split(",")
+        config["channels"] = [c.strip() for c in os.environ["CHANNELS"].split(",") if c.strip()]
     if os.environ.get("LOG_LEVEL"):
         config["log_level"] = os.environ["LOG_LEVEL"]
     if os.environ.get("MAX_VIDEOS"):
@@ -571,8 +511,6 @@ def main():
         config["force_rescan"] = os.environ["FORCE_RESCAN"].lower() in ("true", "1", "yes")
     if os.environ.get("COOKIES_FILE"):
         config["cookies_file"] = os.environ["COOKIES_FILE"]
-    if os.environ.get("BROWSER_COOKIES"):
-        config["browser_cookies"] = os.environ["BROWSER_COOKIES"]
 
     # Setup logging
     logger = setup_logging(config.get("log_level", "INFO"))
@@ -584,36 +522,16 @@ def main():
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Channels: {config.get('channels', [])}")
 
-    if config.get("cookies_file"):
-        logger.info(f"Using cookies file: {config['cookies_file']}")
-    if config.get("browser_cookies"):
-        logger.info(f"Using cookies from browser: {config['browser_cookies']}")
-
     # Check channels
-    channels = config.get("channels", [])
+    channels = list(dict.fromkeys(config.get("channels", [])))  # Dedupe
     if not channels:
         logger.warning("No channels configured!")
         logger.info("Set CHANNELS env var or add to config.json")
-
-        # Create example config
-        if not config_file.exists():
-            example = {
-                "channels": ["example_channel"],
-                "log_level": "INFO",
-                "max_videos_per_channel": None,
-                "force_rescan": False,
-                "cookies_file": None,
-                "browser_cookies": "chrome"  # Use Chrome cookies by default
-            }
-            with open(config_file, "w") as f:
-                json.dump(example, f, indent=2)
-            logger.info(f"Created example config at: {config_file}")
         return
 
     # Backup each channel
     all_stats = []
     for channel in channels:
-        channel = channel.strip()
         if not channel:
             continue
 
@@ -628,7 +546,6 @@ def main():
                 config_dir=config_dir,
                 logger=logger,
                 cookies_file=config.get("cookies_file"),
-                browser_cookies=config.get("browser_cookies"),
                 force_rescan=config.get("force_rescan", False),
                 max_videos=config.get("max_videos_per_channel")
             )
@@ -653,11 +570,13 @@ def main():
 
     for stats in all_stats:
         channel = stats.get("channel", "Unknown")
+        found = stats.get("videos_found", 0)
         downloaded = stats.get("videos_downloaded", 0)
         failed = stats.get("videos_failed", 0)
         skipped = stats.get("videos_skipped", 0)
 
         logger.info(f"\n{channel}:")
+        logger.info(f"  Found: {found}")
         logger.info(f"  Downloaded: {downloaded}")
         logger.info(f"  Skipped: {skipped}")
         logger.info(f"  Failed: {failed}")
