@@ -449,11 +449,22 @@ def backup_channel(
 
         logger.info(f"Processing video {i}/{len(videos)}: {video_id}")
 
-        # Skip if already downloaded
+        # Skip if already downloaded AND the file actually exists
         if video_id in downloaded_videos and not force_rescan:
-            logger.info(f"Skipping already downloaded: {video_id}")
-            stats["videos_skipped"] += 1
-            continue
+            video_output_dir = channel_output_dir / video_id
+            # Verify the video file actually exists
+            video_exists = any(
+                (video_output_dir / f"{video_id}.{ext}").exists()
+                for ext in ["mp4", "webm", "mkv"]
+            )
+            if video_exists:
+                logger.info(f"Skipping already downloaded: {video_id}")
+                stats["videos_skipped"] += 1
+                continue
+            else:
+                # File missing, remove from downloaded list and re-download
+                downloaded_videos.discard(video_id)
+                logger.info(f"Video {video_id} marked as downloaded but file missing, re-downloading")
 
         # Create video directory
         video_output_dir = channel_output_dir / video_id
