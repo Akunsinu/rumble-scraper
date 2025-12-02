@@ -182,8 +182,15 @@ def get_ydl_opts(
     if cookies_file and Path(cookies_file).exists():
         opts["cookiefile"] = cookies_file
 
+    # Only use browser cookies if we're not in Docker (browser won't exist in container)
     if browser_cookies:
-        opts["cookiesfrombrowser"] = (browser_cookies,)
+        # Check if we're likely in Docker by looking for common browser paths
+        import platform
+        in_docker = Path("/.dockerenv").exists() or platform.system() == "Linux"
+
+        if not in_docker:
+            opts["cookiesfrombrowser"] = (browser_cookies,)
+        # In Docker, skip browser cookies - they won't exist
 
     if not download:
         opts["skip_download"] = True

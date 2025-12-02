@@ -436,7 +436,11 @@ def api_delete_channel(channel_name):
 def api_start_backup():
     """Start a backup."""
     try:
-        data = request.json or {}
+        # Handle both JSON and form data
+        if request.is_json:
+            data = request.json or {}
+        else:
+            data = {}
         channel = data.get('channel')
 
         if backup_process['running']:
