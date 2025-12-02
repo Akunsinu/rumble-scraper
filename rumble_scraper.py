@@ -23,8 +23,12 @@ from pathlib import Path
 from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, asdict
 
+import random
 import yt_dlp
 from yt_dlp.networking.impersonate import ImpersonateTarget
+
+# Browser versions to rotate through for better evasion
+CHROME_VERSIONS = ["chrome", "chrome-120", "chrome-131", "chrome-133"]
 
 # =============================================================================
 # Configuration
@@ -122,10 +126,13 @@ def get_ydl_opts(
         browser_cookies: Browser name for --cookies-from-browser (chrome, firefox, etc.)
         download: Whether to download or just extract info
     """
+    # Randomize browser version for better evasion
+    browser_version = random.choice(CHROME_VERSIONS)
+
     opts = {
         # Impersonate Chrome to bypass Cloudflare
-        # Use ImpersonateTarget for proper format
-        "impersonate": ImpersonateTarget("chrome"),
+        # Use ImpersonateTarget for proper format, rotate versions
+        "impersonate": ImpersonateTarget(browser_version),
 
         # Format selection - best quality
         "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -143,14 +150,29 @@ def get_ydl_opts(
         "writeautomaticsub": True,
         "subtitleslangs": ["en"],
 
-        # Network
-        "socket_timeout": 30,
-        "retries": 5,
-        "fragment_retries": 5,
+        # Network - increased timeouts and retries
+        "socket_timeout": 60,
+        "retries": 10,
+        "fragment_retries": 10,
 
-        # Rate limiting (be respectful)
-        "sleep_interval": 2,
-        "max_sleep_interval": 5,
+        # Rate limiting - randomized to appear more human-like
+        "sleep_interval": random.randint(2, 4),
+        "max_sleep_interval": random.randint(5, 8),
+
+        # HTTP headers to match browser
+        "http_headers": {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
+        },
     }
 
     if output_dir:
