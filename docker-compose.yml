@@ -1,0 +1,147 @@
+# =============================================================================
+# Docker Compose Configuration for Rumble Channel Backup
+# =============================================================================
+#
+# This configuration is optimized for Unraid servers but works on any Docker host.
+#
+# Quick Start:
+#   1. Copy this file to your server
+#   2. Edit the volume paths to match your Unraid shares
+#   3. Run: docker-compose up -d
+#
+# Unraid Users:
+#   - Mount /config to /mnt/user/appdata/rumble-scraper
+#   - Mount /data to your media share (e.g., /mnt/user/media/rumble_backups)
+#
+# =============================================================================
+
+services:
+  rumble-scraper:
+    # Build from local Dockerfile or use pre-built image
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Container name for easy identification
+    container_name: rumble-scraper
+
+    # Restart policy - restart unless manually stopped
+    restart: unless-stopped
+
+    # Environment variables
+    environment:
+      # =======================================================================
+      # REQUIRED: List of channels to backup (comma-separated)
+      # =======================================================================
+      # You can use channel names, URLs, or c/channel format
+      # Examples:
+      #   - "BonginoReport"
+      #   - "c/BonginoReport"
+      #   - "https://rumble.com/c/BonginoReport"
+      # Multiple channels: "Channel1,Channel2,Channel3"
+      - CHANNELS=${CHANNELS:-}
+
+      # =======================================================================
+      # OPTIONAL: Scheduling and behavior settings
+      # =======================================================================
+
+      # Cron schedule for automatic backups (default: 2 AM daily)
+      # Format: minute hour day month weekday
+      # Examples:
+      #   "0 2 * * *"     = Daily at 2:00 AM
+      #   "0 */6 * * *"   = Every 6 hours
+      #   "0 2 * * 0"     = Weekly on Sunday at 2:00 AM
+      #   "0 2 1 * *"     = Monthly on the 1st at 2:00 AM
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 2 * * *}
+
+      # Run backup immediately on container start (true/false)
+      - RUN_ON_START=${RUN_ON_START:-true}
+
+      # Logging level (DEBUG, INFO, WARNING, ERROR)
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Maximum videos to download per channel (empty = no limit)
+      - MAX_VIDEOS=${MAX_VIDEOS:-}
+
+      # Force re-download of all videos (true/false)
+      # Warning: This will re-download everything!
+      - FORCE_RESCAN=${FORCE_RESCAN:-false}
+
+      # Browser to extract cookies from (chrome, firefox, edge, etc.)
+      # This helps bypass Cloudflare protection
+      - BROWSER_COOKIES=${BROWSER_COOKIES:-}
+
+      # Path to cookies.txt file (alternative to browser cookies)
+      - COOKIES_FILE=${COOKIES_FILE:-}
+
+      # Timezone (use your local timezone)
+      - TZ=${TZ:-America/New_York}
+
+      # User/Group IDs for file permissions (Unraid: 99:100)
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+
+    # Volume mounts
+    volumes:
+      # =======================================================================
+      # Configuration volume - stores settings, state, and logs
+      # =======================================================================
+      # Unraid: /mnt/user/appdata/rumble-scraper
+      # Other: ./config or /path/to/config
+      - ${CONFIG_PATH:-./config}:/config
+
+      # =======================================================================
+      # Data volume - stores downloaded videos and metadata
+      # =======================================================================
+      # Unraid: /mnt/user/media/rumble_backups or /mnt/user/data/rumble
+      # Other: ./data or /path/to/storage
+      - ${DATA_PATH:-./data}:/data
+
+    # Expose web GUI port
+    ports:
+      - "${WEB_PORT:-4000}:4000"
+
+    # Network mode - use bridge for normal operation
+    network_mode: bridge
+
+    # Resource limits (optional, adjust as needed)
+    # Uncomment to enable resource limits
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2'
+    #       memory: 2G
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 512M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 5m
+      timeout: 30s
+      retries: 3
+      start_period: 10s
+
+# =============================================================================
+# Example .env file content (create a .env file in the same directory):
+# =============================================================================
+#
+# CHANNELS=BonginoReport,TimcastIRL,RussellBrand
+# CRON_SCHEDULE=0 2 * * *
+# RUN_ON_START=true
+# LOG_LEVEL=INFO
+# TZ=America/New_York
+# PUID=99
+# PGID=100
+# CONFIG_PATH=/mnt/user/appdata/rumble-scraper
+# DATA_PATH=/mnt/user/media/rumble_backups
+#
+# =============================================================================

@@ -1,0 +1,11 @@
+# Rumble Channel Backup - Dependencies
+
+# Video downloading with Cloudflare bypass support
+yt-dlp[curl_cffi]>=2024.1.0
+
+# Configuration
+PyYAML>=6.0
+
+# Web GUI
+Flask>=3.0.0
+gunicorn>=21.0.0

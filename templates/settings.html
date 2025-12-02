@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Rumble Scraper{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+    <h1>Settings</h1>
+
+    <form id="settings-form">
+        <div class="form-section">
+            <h2>General Settings</h2>
+
+            <div class="form-group">
+                <label for="log_level">Log Level</label>
+                <select id="log_level" name="log_level">
+                    <option value="DEBUG" {% if config.log_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                    <option value="INFO" {% if config.log_level == 'INFO' %}selected{% endif %}>INFO</option>
+                    <option value="WARNING" {% if config.log_level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                    <option value="ERROR" {% if config.log_level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                </select>
+                <p class="form-help">Controls how much detail is logged</p>
+            </div>
+
+            <div class="form-group">
+                <label for="max_videos">Max Videos Per Channel</label>
+                <input type="number" id="max_videos" name="max_videos_per_channel"
+                       value="{{ config.max_videos_per_channel or '' }}"
+                       placeholder="Leave empty for unlimited" min="1">
+                <p class="form-help">Limit how many videos to download per channel (newest first)</p>
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="force_rescan" name="force_rescan"
+                           {% if config.force_rescan %}checked{% endif %}>
+                    Force Rescan
+                </label>
+                <p class="form-help">Re-download all videos even if already downloaded (use with caution)</p>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h2>Cloudflare Bypass</h2>
+            <p class="section-help">These settings help bypass Cloudflare protection on Rumble</p>
+
+            <div class="form-group">
+                <label for="browser_cookies">Browser Cookies</label>
+                <select id="browser_cookies" name="browser_cookies">
+                    <option value="" {% if not config.browser_cookies %}selected{% endif %}>None</option>
+                    <option value="chrome" {% if config.browser_cookies == 'chrome' %}selected{% endif %}>Chrome</option>
+                    <option value="firefox" {% if config.browser_cookies == 'firefox' %}selected{% endif %}>Firefox</option>
+                    <option value="edge" {% if config.browser_cookies == 'edge' %}selected{% endif %}>Edge</option>
+                    <option value="safari" {% if config.browser_cookies == 'safari' %}selected{% endif %}>Safari</option>
+                    <option value="opera" {% if config.browser_cookies == 'opera' %}selected{% endif %}>Opera</option>
+                </select>
+                <p class="form-help">Extract cookies from your browser to help bypass Cloudflare</p>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+            <span id="save-status"></span>
+        </div>
+    </form>
+
+    <div class="form-section">
+        <h2>Environment Variables</h2>
+        <p>These settings are configured via environment variables and cannot be changed here:</p>
+
+        <table class="table table-simple">
+            <tr>
+                <td><strong>CRON_SCHEDULE</strong></td>
+                <td><code>{{ config.get('cron_schedule') or 'Not set (using default)' }}</code></td>
+            </tr>
+            <tr>
+                <td><strong>CONFIG_DIR</strong></td>
+                <td><code>/config</code></td>
+            </tr>
+            <tr>
+                <td><strong>OUTPUT_DIR</strong></td>
+                <td><code>/data/rumble_backups</code></td>
+            </tr>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('settings-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const formData = {
+        log_level: document.getElementById('log_level').value,
+        max_videos_per_channel: document.getElementById('max_videos').value || null,
+        force_rescan: document.getElementById('force_rescan').checked,
+        browser_cookies: document.getElementById('browser_cookies').value || null
+    };
+
+    const status = document.getElementById('save-status');
+    status.textContent = 'Saving...';
+
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(formData)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            status.textContent = 'Saved!';
+            status.className = 'success';
+            setTimeout(() => status.textContent = '', 3000);
+        } else {
+            status.textContent = 'Error saving';
+            status.className = 'error';
+        }
+    })
+    .catch(err => {
+        status.textContent = 'Error: ' + err;
+        status.className = 'error';
+    });
+});
+</script>
+{% endblock %}

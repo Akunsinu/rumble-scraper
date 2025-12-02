@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Rumble Scraper{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="/">Rumble Scraper</a>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
+            <a href="/channels" class="{% if request.path.startswith('/channel') %}active{% endif %}">Channels</a>
+            <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}">Settings</a>
+            <a href="/logs" class="{% if request.path == '/logs' %}active{% endif %}">Logs</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <p>Rumble Channel Backup</p>
+    </footer>
+
+    <script>
+        // Auto-refresh status
+        function refreshStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    const indicator = document.getElementById('backup-indicator');
+                    if (indicator) {
+                        if (data.backup_running) {
+                            indicator.classList.add('running');
+                            indicator.textContent = 'Backup Running...';
+                        } else {
+                            indicator.classList.remove('running');
+                            indicator.textContent = 'Idle';
+                        }
+                    }
+                })
+                .catch(console.error);
+        }
+
+        setInterval(refreshStatus, 5000);
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

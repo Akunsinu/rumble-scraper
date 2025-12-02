@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - Rumble Scraper{% endblock %}
+
+{% block content %}
+<div class="logs-page">
+    <div class="page-header">
+        <h1>Logs</h1>
+        <div class="log-actions">
+            <button id="refresh-btn" class="btn btn-secondary">Refresh</button>
+            <label class="checkbox-label">
+                <input type="checkbox" id="auto-refresh" checked>
+                Auto-refresh
+            </label>
+        </div>
+    </div>
+
+    <div class="log-container">
+        <pre id="log-output">{% for line in logs %}{{ line }}{% endfor %}</pre>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let autoRefreshInterval;
+
+function refreshLogs() {
+    fetch('/api/logs?lines=200')
+        .then(r => r.json())
+        .then(data => {
+            const output = document.getElementById('log-output');
+            output.textContent = data.logs.join('');
+            output.scrollTop = output.scrollHeight;
+        })
+        .catch(console.error);
+}
+
+document.getElementById('refresh-btn').addEventListener('click', refreshLogs);
+
+document.getElementById('auto-refresh').addEventListener('change', function() {
+    if (this.checked) {
+        autoRefreshInterval = setInterval(refreshLogs, 5000);
+    } else {
+        clearInterval(autoRefreshInterval);
+    }
+});
+
+// Start auto-refresh
+autoRefreshInterval = setInterval(refreshLogs, 5000);
+
+// Scroll to bottom on load
+document.getElementById('log-output').scrollTop = document.getElementById('log-output').scrollHeight;
+</script>
+{% endblock %}

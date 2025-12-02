@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Rumble Scraper{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="page-header">
+        <h1>Dashboard</h1>
+        <button id="backup-btn" class="btn btn-primary" {% if backup_running %}disabled{% endif %}>
+            {% if backup_running %}Backup Running...{% else %}Run Backup Now{% endif %}
+        </button>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value">{{ channels|length }}</div>
+            <div class="stat-label">Channels</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ total_videos }}</div>
+            <div class="stat-label">Videos</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="backup-indicator" class="{% if backup_running %}running{% endif %}">
+                {% if backup_running %}Running...{% else %}Idle{% endif %}
+            </div>
+            <div class="stat-label">Status</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ cron_schedule }}</div>
+            <div class="stat-label">Schedule</div>
+        </div>
+    </div>
+
+    {% if last_run %}
+    <p class="last-run">Last backup: {{ last_run|format_date }}</p>
+    {% endif %}
+
+    <h2>Channels</h2>
+
+    {% if channels %}
+    <div class="channel-grid">
+        {% for channel in channels %}
+        <div class="channel-card">
+            <div class="channel-header">
+                <h3>{{ channel.name }}</h3>
+                <button class="btn btn-sm btn-secondary backup-channel-btn" data-channel="{{ channel.name }}">
+                    Backup
+                </button>
+            </div>
+            <div class="channel-stats">
+                <div class="channel-stat">
+                    <span class="value">{{ channel.video_count }}</span>
+                    <span class="label">Videos</span>
+                </div>
+                <div class="channel-stat">
+                    <span class="value">{{ channel.total_size }}</span>
+                    <span class="label">Size</span>
+                </div>
+            </div>
+            {% if channel.last_backup %}
+            <div class="channel-last-backup">
+                Last backup: {{ channel.last_backup|format_date }}
+            </div>
+            {% endif %}
+            <a href="/channel/{{ channel.name }}" class="btn btn-block">View Videos</a>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No channels configured yet.</p>
+        <a href="/channels" class="btn btn-primary">Add Channels</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('backup-btn')?.addEventListener('click', function() {
+    this.disabled = true;
+    this.textContent = 'Starting...';
+
+    fetch('/api/backup', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                this.textContent = 'Backup Running...';
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                alert(data.error || 'Failed to start backup');
+                this.disabled = false;
+                this.textContent = 'Run Backup Now';
+            }
+        })
+        .catch(err => {
+            alert('Error: ' + err);
+            this.disabled = false;
+            this.textContent = 'Run Backup Now';
+        });
+});
+
+document.querySelectorAll('.backup-channel-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const channel = this.dataset.channel;
+        this.disabled = true;
+        this.textContent = 'Starting...';
+
+        fetch('/api/backup', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({channel: channel})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                this.textContent = 'Running...';
+            } else {
+                alert(data.error || 'Failed');
+                this.disabled = false;
+                this.textContent = 'Backup';
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Channels - Rumble Scraper{% endblock %}
+
+{% block content %}
+<div class="channels-page">
+    <div class="page-header">
+        <h1>Channels</h1>
+    </div>
+
+    <div class="add-channel-form">
+        <h2>Add Channel</h2>
+        <form id="add-channel-form">
+            <div class="form-row">
+                <input type="text" id="channel-input" placeholder="Channel name or URL (e.g., ChannelName or https://rumble.com/c/ChannelName)" required>
+                <button type="submit" class="btn btn-primary">Add Channel</button>
+            </div>
+            <p class="form-help">Supported formats: ChannelName, c/ChannelName, user/Username, or full URL</p>
+        </form>
+    </div>
+
+    <h2>Configured Channels</h2>
+
+    {% if channels %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Channel</th>
+                <th>Videos</th>
+                <th>Size</th>
+                <th>Last Backup</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for channel in channels %}
+            <tr data-channel="{{ channel.name }}">
+                <td>
+                    <a href="/channel/{{ channel.name }}">{{ channel.name }}</a>
+                </td>
+                <td>{{ channel.video_count }}</td>
+                <td>{{ channel.total_size }}</td>
+                <td>{{ channel.last_backup|format_date if channel.last_backup else 'Never' }}</td>
+                <td class="actions">
+                    <a href="/channel/{{ channel.name }}" class="btn btn-sm">View</a>
+                    <button class="btn btn-sm btn-secondary backup-btn" data-channel="{{ channel.name }}">Backup</button>
+                    <button class="btn btn-sm btn-danger delete-btn" data-channel="{{ channel.name }}">Remove</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No channels configured. Add one above to get started!</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('add-channel-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const input = document.getElementById('channel-input');
+    const channel = input.value.trim();
+
+    if (!channel) return;
+
+    fetch('/api/channels', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({channel: channel})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to add channel');
+        }
+    })
+    .catch(err => alert('Error: ' + err));
+});
+
+document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const channel = this.dataset.channel;
+        if (!confirm(`Remove "${channel}" from backup list? (This won't delete downloaded videos)`)) {
+            return;
+        }
+
+        fetch(`/api/channels/${encodeURIComponent(channel)}`, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    this.closest('tr').remove();
+                } else {
+                    alert('Failed to remove channel');
+                }
+            });
+    });
+});
+
+document.querySelectorAll('.backup-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const channel = this.dataset.channel;
+        this.disabled = true;
+        this.textContent = 'Starting...';
+
+        fetch('/api/backup', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({channel: channel})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                this.textContent = 'Running...';
+            } else {
+                alert(data.error || 'Failed');
+                this.disabled = false;
+                this.textContent = 'Backup';
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

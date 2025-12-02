@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}{{ channel_name }} - Rumble Scraper{% endblock %}
+
+{% block content %}
+<div class="channel-detail">
+    <div class="page-header">
+        <div>
+            <a href="/channels" class="back-link">&larr; Back to Channels</a>
+            <h1>{{ channel_name }}</h1>
+            <p>{{ video_count }} videos downloaded</p>
+        </div>
+        <button id="backup-btn" class="btn btn-primary">Backup Now</button>
+    </div>
+
+    {% if videos %}
+    <div class="video-grid">
+        {% for video in videos %}
+        <div class="video-card">
+            <a href="/video/{{ channel_name }}/{{ video.id }}/play" class="video-thumb">
+                {% if video.thumbnail %}
+                <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                {% else %}
+                <div class="thumb-placeholder">No Thumbnail</div>
+                {% endif %}
+                {% if video.duration %}
+                <span class="duration">{{ video.duration|format_duration }}</span>
+                {% endif %}
+            </a>
+            <div class="video-info">
+                <h3><a href="/video/{{ channel_name }}/{{ video.id }}/play">{{ video.title }}</a></h3>
+                <div class="video-meta">
+                    {% if video.views %}
+                    <span>{{ video.views|format_number }} views</span>
+                    {% endif %}
+                    {% if video.upload_date %}
+                    <span>{{ video.upload_date|format_date }}</span>
+                    {% endif %}
+                </div>
+                {% if video.video_size %}
+                <div class="video-size">{{ video.video_size }}</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No videos downloaded yet.</p>
+        <button id="first-backup-btn" class="btn btn-primary">Start First Backup</button>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function startBackup() {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    fetch('/api/backup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({channel: '{{ channel_name }}'})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            btn.textContent = 'Backup Running...';
+        } else {
+            alert(data.error || 'Failed');
+            btn.disabled = false;
+            btn.textContent = 'Backup Now';
+        }
+    });
+}
+
+document.getElementById('backup-btn')?.addEventListener('click', startBackup);
+document.getElementById('first-backup-btn')?.addEventListener('click', startBackup);
+</script>
+{% endblock %}

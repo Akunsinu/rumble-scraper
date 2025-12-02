@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}{{ video.title }} - Rumble Scraper{% endblock %}
+
+{% block content %}
+<div class="player-page">
+    <div class="page-header">
+        <a href="/channel/{{ channel_name }}" class="back-link">&larr; Back to {{ channel_name }}</a>
+    </div>
+
+    <div class="player-container">
+        {% if video_url %}
+        <video id="video-player" controls autoplay>
+            <source src="{{ video_url }}" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        {% else %}
+        <div class="no-video">
+            <p>Video file not found</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="video-details">
+        <h1>{{ video.title }}</h1>
+
+        <div class="video-meta-row">
+            {% if video.view_count %}
+            <span class="meta-item">{{ video.view_count|format_number }} views</span>
+            {% endif %}
+            {% if video.like_count %}
+            <span class="meta-item">{{ video.like_count|format_number }} likes</span>
+            {% endif %}
+            {% if video.upload_date %}
+            <span class="meta-item">{{ video.upload_date|format_date }}</span>
+            {% endif %}
+            {% if video.duration %}
+            <span class="meta-item">{{ video.duration|format_duration }}</span>
+            {% endif %}
+        </div>
+
+        {% if video.uploader or video.channel %}
+        <div class="video-uploader">
+            <strong>Channel:</strong> {{ video.uploader or video.channel }}
+        </div>
+        {% endif %}
+
+        {% if video.description %}
+        <div class="video-description">
+            <h3>Description</h3>
+            <pre>{{ video.description }}</pre>
+        </div>
+        {% endif %}
+
+        {% if video.webpage_url %}
+        <div class="video-links">
+            <a href="{{ video.webpage_url }}" target="_blank" class="btn btn-secondary">View on Rumble</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Remember playback position
+const video = document.getElementById('video-player');
+const videoId = '{{ video.id }}';
+
+if (video) {
+    // Restore position
+    const savedTime = localStorage.getItem('video-' + videoId);
+    if (savedTime) {
+        video.currentTime = parseFloat(savedTime);
+    }
+
+    // Save position periodically
+    video.addEventListener('timeupdate', function() {
+        if (video.currentTime > 0) {
+            localStorage.setItem('video-' + videoId, video.currentTime);
+        }
+    });
+
+    // Clear on end
+    video.addEventListener('ended', function() {
+        localStorage.removeItem('video-' + videoId);
+    });
+}
+</script>
+{% endblock %}

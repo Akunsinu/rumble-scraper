@@ -1,0 +1,28 @@
+{
+  "_comment": "Rumble Channel Backup Configuration File",
+  "_instructions": [
+    "Add channel names or URLs to the 'channels' array below",
+    "Channels can be specified as:",
+    "  - Channel name: 'BonginoReport'",
+    "  - Channel URL format: 'c/BonginoReport'",
+    "  - Full URL: 'https://rumble.com/c/BonginoReport'",
+    "  - User format: 'user/username'"
+  ],
+
+  "channels": [
+    "example_channel_1",
+    "example_channel_2"
+  ],
+
+  "log_level": "INFO",
+
+  "max_videos_per_channel": null,
+
+  "force_rescan": false,
+
+  "download_captions": true,
+
+  "download_thumbnails": true,
+
+  "request_delay_seconds": 2
+}
